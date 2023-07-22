@@ -181,18 +181,17 @@ def pull_sentiment_analysis_for_stocks(tickers):
         parsed = []    
         for ticker, news_table in news_tables.items():  # iterating thru key and value
             for row in news_table.findAll('tr'):  # for each row that contains 'tr'
-                if row.a is not None:    # Check if 'a' tag exists in the row
-                    title = row.a.text
-                    source = row.span.text
-                    date_data = row.td.text.split(' ')
-                    if len(date_data) > 1:     # both date and time, ex: Dec-27-20 10:00PM
-                        date = date_data[0]
-                        time = date_data[1]
-                    else:
-                        time = date_data[0] # only time is given ex: 05:00AM
+                title = row.a.text if row.a else ''  # <--- Changed this line
+                source = row.span.text
+                date_data = row.td.text.split(' ')
+                if len(date_data) > 1:     # both date and time, ex: Dec-27-20 10:00PM
+                    date = date_data[0]
+                    time = date_data[1]
+                else:
+                    time = date_data[0] # only time is given ex: 05:00AM
 
-                    if source.strip() not in ignore_source:
-                        parsed.append([ticker, date, time, title])                              
+                if source.strip() not in ignore_source and date:
+                    parsed.append([ticker, date, time, title])                                
 
         # Applying Sentiment Analysis
         df = pd.DataFrame(parsed, columns=['Ticker', 'date', 'Time', 'Title'])
@@ -203,17 +202,21 @@ def pull_sentiment_analysis_for_stocks(tickers):
         df['compound'] = df['Title'].apply(score)   # adds compound score to data frame
 
         # Visualization of Sentiment Analysis
-        df['date'] = pd.to_datetime(df.date).dt.date # takes date column convert it to date/time format
+        if 'date' in df.columns:
+            df['date'] = pd.to_datetime(df.date, errors='coerce').dt.date # takes date column convert it to date/time format
 
-        plt.figure(figsize=(6,6))      # figure size
-        # unstack() allows us to have dates as x-axis
-        mean_df = df.groupby(['date', 'Ticker']).mean() # avg compound score for each date
-        mean_df = mean_df.unstack() 
+            plt.figure(figsize=(6,6))      # figure size
+            # unstack() allows us to have dates as x-axis
+            mean_df = df.groupby(['date', 'Ticker']).mean() # avg compound score for each date
+            mean_df = mean_df.unstack() 
 
-        # xs (cross section of compound) get rids of compound label
-        mean_df = mean_df.xs('compound', axis="columns")
-        mean_df.plot(kind='bar')
-        plt.show()
+            # xs (cross section of compound) get rids of compound label
+            if 'compound' in mean_df.columns:  # Check if 'compound' is in columns before plotting
+                mean_df = mean_df.xs('compound', axis="columns")
+                mean_df.plot(kind='bar')
+                plt.show()
+            else:
+                print("No sentiment analysis results to plot.")
 
     #tickers = load_tickers_from_json('tickers_momentum.json')
 
