@@ -91,65 +91,147 @@ def run_predictions(tickers):
 
     def create_model(X_train):
         model = Sequential()
-        model.add(LSTM(50, return_sequences=True, input_shape=(X_train.shape[1], X_train.shape[2])))
+        # Change the input_shape to match the number of timesteps (60 in your case)
+        model.add(LSTM(50, return_sequences=True, input_shape=(60, 1)))
         model.add(LSTM(50))
         model.add(Dense(1))
         model.compile(loss='mae', optimizer='adam')
         return model
 
-    def train_and_predict_stock_price(ticker, data, look_ahead=60):
+    def train_and_predict_stock_price(ticker, data, look_ahead=60, future_days=10):
         try:
             scaler = MinMaxScaler()
             scaled_data = scaler.fit_transform(data[['Close']].values)
 
             X_train, X_test, y_train, y_test = train_test_split(scaled_data[:-look_ahead], scaled_data[look_ahead:], shuffle=False)
 
-            X_train = X_train.reshape((X_train.shape[0], 1, X_train.shape[1]))
-            X_test = X_test.reshape((X_test.shape[0], 1, X_test.shape[1]))
+            def create_dataset(X, y, time_steps=1):
+                Xs, ys = [], []
+                for i in range(len(X) - time_steps):
+                    v = X[i:(i + time_steps)]
+                    Xs.append(v)
+                    ys.append(y[i + time_steps])
+                return np.array(Xs), np.array(ys)
+
+            time_steps = 60
+
+            # reshape to [samples, time_steps, n_features]
+            X_train, y_train = create_dataset(X_train, y_train, time_steps)
+            X_test, y_test = create_dataset(X_test, y_test, time_steps)
 
             model = create_model(X_train)
             model.fit(X_train, y_train, epochs=50, batch_size=32, validation_data=(X_test, y_test), verbose=0, shuffle=False)
 
-            predictions = model.predict(X_test[-look_ahead:])
-            predictions = scaler.inverse_transform(predictions)
+            # Predict the future prices
+            future_prices = []
+            current_batch = scaled_data[-look_ahead:].reshape((1, look_ahead, 1))
+
+            for i in range(future_days):
+                # Ensure that current_batch has shape (1, 60, 1)
+                future_price = model.predict(current_batch)[0]
+                future_prices.append(future_price)
+                current_batch = np.append(current_batch[:,1:,:], [[future_price]], axis=1)
+                current_batch = current_batch.reshape(1, 60, 1)
+
+            future_prices = scaler.inverse_transform(future_prices)
+
+            # Generate future dates
+            last_date = data.index[-1]
+            future_dates = pd.date_range(start=last_date, periods=future_days+1)[1:]
 
             # Save predictions with dates
-            prediction_dates = data.index[-look_ahead:]
-            predictions_df = pd.DataFrame(predictions, index=prediction_dates, columns=['Prediction'])
+            predictions_df = pd.DataFrame(future_prices, index=future_dates, columns=['Prediction'])
             predictions_df.to_csv(f'predictions/{ticker}_predictions.csv')
 
         except Exception as e:
             logging.error(f"Error in prediction for {ticker}: {str(e)}")
 
-
     #tickers = load_tickers_from_json('tickers.json')
-    
+
     for ticker in tickers:
+        print(f"Processing ticker {ticker}...")
         data = fetch_stock_data(ticker)
         if data is not None:
+            print(f"Saving stock data for {ticker}...")
             save_stock_data_to_csv(ticker, data)
+            print(f"Training model and predicting prices for {ticker}...")
             train_and_predict_stock_price(ticker, data)
-
+            print(f"Predictions for {ticker} completed.")
+        else:
+            print(f"No data available for ticker {ticker}. Skipping...")
+    print("All predictions completed.")
+    
 def visualize_charts_and_predictions(tickers):
-    def plot_predictions(ticker):
+    def select_data_range():
+        print("\n1. Last 1 month")
+        print("2. Last 3 months")
+        print("3. Last 6 months")
+        print("4. Last 1 year")
+        print("5. Last 2 years")
+        option = input("Select data range for the chart: ")
+
+        if option == '1':
+            return '1M'
+        elif option == '2':
+            return '3M'
+        elif option == '3':
+            return '6M'
+        elif option == '4':
+            return '1Y'
+        elif option == '5':
+            return '2Y'
+        else:
+            print("Invalid option. Defaulting to 1M.")
+            return '1M'
+
+    def filter_data_by_date_range(data, range_option):
+        if range_option.endswith('M'):
+            months = int(range_option[:-1])
+            return data.last(f'{months}M')
+        elif range_option.endswith('Y'):
+            years = int(range_option[:-1])
+            return data.last(f'{years}Y')
+
+    def plot_predictions(ticker, range_option):
         try:
             predictions = pd.read_csv(f'predictions/{ticker}_predictions.csv', index_col=0)
             predictions.index = pd.to_datetime(predictions.index)
+
+            stock_data = pd.read_csv(f'data/{ticker}_stock_data.csv', index_col=0)
+            stock_data.index = pd.to_datetime(stock_data.index)
+
+            # Filter the data based on the selected range
+            latest_date = max(stock_data.index.max(), predictions.index.max())
+            if range_option.endswith('M'):
+                months = int(range_option[:-1])
+                earliest_date = latest_date - pd.DateOffset(months=months)
+            elif range_option.endswith('Y'):
+                years = int(range_option[:-1])
+                earliest_date = latest_date - pd.DateOffset(years=years)
+
+            stock_data = stock_data.loc[earliest_date:]
+            predictions = predictions.loc[earliest_date:]
+
             plt.figure(figsize=(14, 8))
 
+            # Plot the actual prices
+            plt.plot(stock_data['Close'], label='Actual Price')
+
             # Calculate moving averages
-            predictions['MA21'] = predictions['Prediction'].rolling(window=21).mean()
-            predictions['MA200'] = predictions['Prediction'].rolling(window=200).mean()
+            stock_data['MA21'] = stock_data['Close'].rolling(window=21).mean()
+            stock_data['MA200'] = stock_data['Close'].rolling(window=200).mean()
 
-            plt.plot(predictions['Prediction'], label='Prediction')
-            plt.plot(predictions['MA21'], label='21 periods Moving Average', color='orange')
-            plt.plot(predictions['MA200'], label='200 periods Moving Average', color='green')
+            plt.plot(stock_data['MA21'], label='21 periods Moving Average', color='orange')
+            plt.plot(stock_data['MA200'], label='200 periods Moving Average', color='green')
 
-            plt.title(f'Predictions and Moving Averages for {ticker}')
+            # Plot the predictions
+            plt.plot(predictions['Prediction'], label='Predicted Price')
+
+            plt.title(f'Actual Prices, Moving Averages, and Predictions for {ticker}')
             plt.xlabel('Date')
             plt.ylabel('Price')
             plt.legend()
-            
+
             # Rotate date labels
             plt.xticks(rotation=90)
 
@@ -157,10 +239,13 @@ def visualize_charts_and_predictions(tickers):
         except FileNotFoundError:
             print(f"No prediction data found for {ticker}")
 
-    #tickers = load_tickers_from_json('tickers.json')
-    
+    data_range = select_data_range()
+
     for ticker in tickers:
-        plot_predictions(ticker)
+        print(f"\nProcessing ticker: {ticker}")
+        print("Fetching prediction data...")
+        plot_predictions(ticker, data_range)
+        print(f"Finished processing {ticker}\n")
 
 def pull_sentiment_analysis_for_stocks(tickers):
     def analyze_sentiment(tickers):
