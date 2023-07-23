@@ -247,36 +247,62 @@ def visualize_charts_and_predictions(tickers):
         plot_predictions(ticker, data_range)
         print(f"Finished processing {ticker}\n")
 
-def pull_sentiment_analysis_for_stocks(tickers):
-    def analyze_sentiment(tickers):
-        # Getting Finviz Data
-        news_tables = {}        # contains each ticker headlines
-        for ticker in tickers:
-            url = f'https://finviz.com/quote.ashx?t={ticker}'
-            req = Request(url=url, headers={'user-agent': 'news'})
-            response = urlopen(req)     # taking out html response
-                    
-            html = BeautifulSoup(response, features = 'html.parser')
-            news_table = html.find(id = 'news-table') # gets the html object of entire table
-            news_tables[ticker] = news_table
+def pull_sentiment_analysis_for_stocks(tickers, source='finviz'):
+    def analyze_sentiment(tickers, source):
+        # Different parsing functions for different sources
+        def parse_finviz(html):
+            news_table = html.find('table', {'id': 'news-table'})
+            return news_table
 
+        def parse_yahoo(html):
+            news_table = html.find('div', class_='news-container')  # Adjust this to match the actual tag and class name
+            return news_table
+
+        # Mapping of sources to parsing functions
+        parse_functions = {
+            'finviz': parse_finviz,
+            'yahoo': parse_yahoo
+        }
+
+        # Choose the right parsing function
+        parse_function = parse_functions[source]
+
+        # Getting Data
         ignore_source = ['Motley Fool', 'TheStreet.com'] # sources to exclude
+        news_tables = {}        
+        for ticker in tickers:
+            if source == 'finviz':
+                url = f'https://finviz.com/quote.ashx?t={ticker}'
+            elif source == 'yahoo':
+                url = f'https://finance.yahoo.com/quote/{ticker}/news?p={ticker}'
+
+            req = Request(url=url, headers={'user-agent': 'news'})
+            response = urlopen(req)     
+            html = BeautifulSoup(response, features='html.parser')
+
+            # Call the chosen parsing function
+            news_table = parse_function(html)
+            news_tables[ticker] = news_table
 
         # Parsing and Manipulating
         parsed = []    
         for ticker, news_table in news_tables.items():  # iterating thru key and value
-            for row in news_table.findAll('tr'):  # for each row that contains 'tr'
-                title = row.a.text if row.a else ''  # <--- Changed this line
-                source = row.span.text
-                date_data = row.td.text.split(' ')
-                if len(date_data) > 1:     # both date and time, ex: Dec-27-20 10:00PM
-                    date = date_data[0]
-                    time = date_data[1]
-                else:
-                    time = date_data[0] # only time is given ex: 05:00AM
+            if news_table is not None:
+                news_items = news_table.find_all('div')  # Adjust this to match the actual tag of the individual news articles
+                for news_item in news_items:
+                    title = news_item.a.text if news_item.a else ''
+                    source = news_item.span.text
+                    date_data = news_item.td.text.split(' ')  # Corrected here
+                    if len(date_data) > 1:     # both date and time, ex: Dec-27-20 10:00PM
+                        date = date_data[0]
+                        time = date_data[1]
+                    else:
+                        time = date_data[0] # only time is given ex: 05:00AM
 
-                if source.strip() not in ignore_source and date:
-                    parsed.append([ticker, date, time, title])                                
+                    if source.strip() not in ignore_source and date:
+                        parsed.append([ticker, date, time, title]) 
+            else:
+                print(f"No news found for ticker {ticker} from source {source}")
 
         # Applying Sentiment Analysis
         df = pd.DataFrame(parsed, columns=['Ticker', 'date', 'Time', 'Title'])
@@ -303,9 +329,7 @@ def pull_sentiment_analysis_for_stocks(tickers):
             else:
                 print("No sentiment analysis results to plot.")
 
-    #tickers = load_tickers_from_json('tickers_momentum.json')
-
-    analyze_sentiment(tickers)
+    analyze_sentiment(tickers, source)
 
 def main():
     while True:
@@ -346,7 +370,16 @@ def main():
             elif option == '3':
                 visualize_charts_and_predictions(tickers)
             elif option == '4':
-                pull_sentiment_analysis_for_stocks(tickers)
+                print("\n1. Finviz")
+                print("2. Yahoo")
+                source = input("Select a News Source: ")
+                if ticker_option == '1':
+                    pull_sentiment_analysis_for_stocks(tickers, source='finviz')
+                elif ticker_option == '2':
+                    pull_sentiment_analysis_for_stocks(tickers, source='yahoo')
+                else:
+                    print("Invalid option selected. Please try again.")
+                    continue
 
         elif option == '5':
             break
