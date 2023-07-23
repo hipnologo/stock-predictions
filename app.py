@@ -19,6 +19,15 @@ logging.basicConfig(filename='stock_predictor.log', level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(message)s')
 
 def load_tickers_from_json(json_file_path):
+    """
+    Loads the list of tickers from a JSON file.
+
+    Args:
+        json_file_path (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
     try:
         with open(json_file_path, 'r') as file:
             tickers = json.load(file)
@@ -31,14 +40,30 @@ def load_tickers_from_json(json_file_path):
     return tickers
 
 def get_sp500_tickers():
-    # This is just an example. You might need to update the URL or the scraping logic
-    # as the Wikipedia page structure could change over time.
+    """
+    Pulls the list of S&P500 tickers from Wikipedia.
+
+    Returns:
+        _type_: _description_
+    """    
+    # Check if Wikipedia page structure could change over time.
     table = pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_500_companies')[0]
     tickers = table['Symbol'].tolist()
     tickers = ['META' if ticker=='FB' else ticker for ticker in tickers]
     return tickers
 
 def pull_momentum_stocks(tickers, momentum_threshold=0.05, json_file_path='tickers_momentum.json'):
+    """
+    Pulls the list of momentum stocks and saves them to a JSON file.
+
+    Args:
+        tickers (_type_): _description_
+        momentum_threshold (float, optional): _description_. Defaults to 0.05.
+        json_file_path (str, optional): _description_. Defaults to 'tickers_momentum.json'.
+
+    Returns:
+        _type_: _description_
+    """
     def calculate_momentum(price_data, period):
         return price_data['Close'].diff(period) / price_data['Close'].shift(period)
 
@@ -72,7 +97,22 @@ def pull_momentum_stocks(tickers, momentum_threshold=0.05, json_file_path='ticke
         print(f"{json_file_path} file created successfully!")
 
 def run_predictions(tickers):
+    """
+    Predicts the stock prices for the given tickers and saves the predictions to a CSV file.
+
+    Args:
+        tickers (_type_): _description_
+    """    
     def fetch_stock_data(ticker):
+        """
+        Fetches the stock data for the given ticker.
+
+        Args:
+            ticker (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """        
         try:
             data = yf.Ticker(ticker).history(period='5y')
             if data.empty:
@@ -84,12 +124,28 @@ def run_predictions(tickers):
         return data
 
     def save_stock_data_to_csv(ticker, data):
+        """
+        Saves the stock data to a CSV file.
+
+        Args:
+            ticker (_type_): _description_
+            data (_type_): _description_
+        """        
         try:
             data.to_csv(f'data/{ticker}_stock_data.csv')
         except Exception as e:
             logging.error(f"Error saving data for ticker {ticker}: {str(e)}")
 
     def create_model(X_train):
+        """
+        Creates the LSTM model.
+
+        Args:
+            X_train (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """        
         model = Sequential()
         # Change the input_shape to match the number of timesteps (60 in your case)
         model.add(LSTM(50, return_sequences=True, input_shape=(60, 1)))
@@ -99,6 +155,18 @@ def run_predictions(tickers):
         return model
 
     def train_and_predict_stock_price(ticker, data, look_ahead=60, future_days=10):
+        """
+        Trains the model and predicts the stock price for the given ticker.
+
+        Args:
+            ticker (_type_): _description_
+            data (_type_): _description_
+            look_ahead (int, optional): _description_. Defaults to 60.
+            future_days (int, optional): _description_. Defaults to 10.
+
+        Returns:
+            _type_: _description_
+        """        
         try:
             scaler = MinMaxScaler()
             scaled_data = scaler.fit_transform(data[['Close']].values)
@@ -162,6 +230,12 @@ def run_predictions(tickers):
     print("All predictions completed.")
     
 def visualize_charts_and_predictions(tickers):
+    """
+    Visualizes the charts and predictions for the given tickers.
+
+    Args:
+        tickers (_type_): _description_
+    """    
     def select_data_range():
         print("\n1. Last 1 month")
         print("2. Last 3 months")
@@ -185,6 +259,16 @@ def visualize_charts_and_predictions(tickers):
             return '1M'
 
     def filter_data_by_date_range(data, range_option):
+        """
+        Filters the data based on the selected range.
+
+        Args:
+            data (_type_): _description_
+            range_option (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """        
         if range_option.endswith('M'):
             months = int(range_option[:-1])
             return data.last(f'{months}M')
@@ -193,6 +277,13 @@ def visualize_charts_and_predictions(tickers):
             return data.last(f'{years}Y')
 
     def plot_predictions(ticker, range_option):
+        """
+        Plots the predictions for the given ticker.
+
+        Args:
+            ticker (_type_): _description_
+            range_option (_type_): _description_
+        """        
         try:
             predictions = pd.read_csv(f'predictions/{ticker}_predictions.csv', index_col=0)
             predictions.index = pd.to_datetime(predictions.index)
@@ -248,13 +339,48 @@ def visualize_charts_and_predictions(tickers):
         print(f"Finished processing {ticker}\n")
 
 def pull_sentiment_analysis_for_stocks(tickers, source='finviz'):
+    """
+    Pulls the sentiment analysis for the given tickers and source.
+
+    Args:
+        tickers (_type_): _description_
+        source (str, optional): _description_. Defaults to 'finviz'.
+    """    
     def analyze_sentiment(tickers, source):
+        """
+        Analyzes the sentiment for the given tickers and source.
+
+        Args:
+            tickers (_type_): _description_
+            source (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """        
         # Different parsing functions for different sources
         def parse_finviz(html):
+            """
+            Parses the Finviz HTML.
+
+            Args:
+                html (_type_): _description_
+
+            Returns:
+                _type_: _description_
+            """            
             news_table = html.find('table', {'id': 'news-table'})
             return news_table
 
         def parse_yahoo(html):
+            """
+            Parse the Yahoo Finance HTML.
+
+            Args:
+                html (_type_): _description_
+
+            Returns:
+                _type_: _description_
+            """            
             news_table = html.find('div', class_='news-container')  # Adjust this to match the actual tag and class name
             return news_table
 
@@ -332,6 +458,9 @@ def pull_sentiment_analysis_for_stocks(tickers, source='finviz'):
     analyze_sentiment(tickers, source)
 
 def main():
+    """
+    Main function to run the stock predictor app.
+    """    
     while True:
         print("\n1. Pull momentum stocks")
         print("2. Run predictions")
