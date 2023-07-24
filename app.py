@@ -77,6 +77,7 @@ def pull_momentum_stocks(tickers, momentum_threshold=0.05, json_file_path='ticke
     #momentum_threshold = 0.07  # chosen momentum threshold
 
     tickers = get_sp500_tickers()
+    print(f"Processing {len(tickers)} tickers...")
     momentum_tickers = []
 
     for ticker in tickers:
@@ -501,11 +502,16 @@ def main():
             elif option == '4':
                 print("\n1. Finviz")
                 print("2. Yahoo")
+                print("3. MarketWatch")
+                print("4. SeekingAlpha")
+                print("5. Twitter")
                 source = input("Select a News Source: ")
                 if ticker_option == '1':
                     pull_sentiment_analysis_for_stocks(tickers, source='finviz')
                 elif ticker_option == '2':
                     pull_sentiment_analysis_for_stocks(tickers, source='yahoo')
+                elif option in ['3', '4', '5']:
+                    print("This feature is not yet implemented. Please try again later.")
                 else:
                     print("Invalid option selected. Please try again.")
                     continue
